@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Pilot | Command Center</title>
+    <style>
+        body { background: #0a0a0a; color: #00ff41; font-family: 'Courier New', monospace; text-align: center; }
+        .container { max-width: 900px; margin: auto; padding: 20px; }
+        .network-map { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 30px; }
+        .node { border: 2px solid #00ff41; padding: 20px; width: 150px; border-radius: 8px; cursor: pointer; transition: 0.3s; }
+        .node:hover { background: #003300; }
+        .node.compromised { border-color: #ff4141; color: #ff4141; box-shadow: 0 0 10px #ff4141; }
+        .node.patched { border-color: #4141ff; color: #4141ff; }
+        .controls { margin-top: 40px; padding: 20px; border-top: 1px solid #333; }
+        button { background: #00ff41; color: black; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin: 5px; }
+        button.red { background: #ff4141; }
+        button.blue { background: #4141ff; color: white; }
+        #status-msg { margin-top: 10px; font-style: italic; }
+        .alert-bar { width: 100%; height: 20px; background: #222; margin-top: 10px; border-radius: 10px; overflow: hidden; }
+        #alert-fill { height: 100%; width: 0%; background: red; transition: width 0.5s; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PACKET PILOT: LIVE NETWORK MAP</h1>
+        <p>System Detection Level:</p>
+        <div class="alert-bar"><div id="alert-fill"></div></div>
+        
+        <div id="map" class="network-map">Loading nodes...</div>
+
+        <div class="controls">
+            <h3>Terminal Actions</h3>
+            <p>Target Node: <span id="selected-node-name">None</span></p>
+            <button class="red" onclick="takeAction('attack')">EXPLOIT (RED TEAM)</button>
+            <button class="blue" onclick="takeAction('patch')">PATCH (BLUE TEAM)</button>
+            <div id="status-msg">Select a node to begin.</div>
+        </div>
+    </div>
+
+    <script>
+        // CHANGE THIS TO YOUR ACTUAL FOLDER PATH
+        const API_BASE = "https://yourdomain.com/cyber/packetpilot/";
+        
+        let selectedNodeId = null;
+
+        async function fetchNodes() {
+            try {
+                const res = await fetch(`${API_BASE}get_nodes.php`);
+                const nodes = await res.json();
+                renderMap(nodes);
+            } catch (e) { console.error("Update failed", e); }
+        }
+
+        function renderMap(nodes) {
+            const mapDiv = document.getElementById('map');
+            mapDiv.innerHTML = '';
+            let maxAlert = 0;
+
+            nodes.forEach(node => {
+                const div = document.createElement('div');
+                div.className = `node ${node.status}`;
+                div.innerHTML = `<strong>${node.node_name}</strong><br><small>${node.status.toUpperCase()}</small>`;
+                div.onclick = () => {
+                    selectedNodeId = node.id;
+                    document.getElementById('selected-node-name').innerText = node.node_name;
+                };
+                mapDiv.appendChild(div);
+                if (parseInt(node.alert_level) > maxAlert) maxAlert = node.alert_level;
+            });
+
+            document.getElementById('alert-fill').style.width = maxAlert + "%";
+        }
+
+        async function takeAction(action) {
+            if (!selectedNodeId) return alert("Select a node first!");
+            
+            document.getElementById('status-msg').innerText = "Processing command...";
+            
+            try {
+                const res = await fetch(`${API_BASE}play.php`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ node_id: selectedNodeId, action: action })
+                });
+                const data = await res.json();
+                document.getElementById('status-msg').innerText = data.msg;
+                fetchNodes(); // Refresh immediately
+            } catch (e) { document.getElementById('status-msg').innerText = "Error contacting server."; }
+        }
+
+        // Auto-refresh every 3 seconds for live gameplay
+        setInterval(fetchNodes, 3000);
+        fetchNodes();
+    </script>
+</body>
+</html>
