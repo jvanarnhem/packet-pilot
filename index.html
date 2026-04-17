@@ -2,96 +2,187 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Packet Pilot | Command Center</title>
+    <title>Packet Pilot: Duel Edition</title>
     <style>
-        body { background: #0a0a0a; color: #00ff41; font-family: 'Courier New', monospace; text-align: center; }
-        .container { max-width: 900px; margin: auto; padding: 20px; }
-        .network-map { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; margin-top: 30px; }
-        .node { border: 2px solid #00ff41; padding: 20px; width: 150px; border-radius: 8px; cursor: pointer; transition: 0.3s; }
-        .node:hover { background: #003300; }
-        .node.compromised { border-color: #ff4141; color: #ff4141; box-shadow: 0 0 10px #ff4141; }
-        .node.patched { border-color: #4141ff; color: #4141ff; }
-        .controls { margin-top: 40px; padding: 20px; border-top: 1px solid #333; }
-        button { background: #00ff41; color: black; border: none; padding: 10px 20px; font-weight: bold; cursor: pointer; margin: 5px; }
-        button.red { background: #ff4141; }
-        button.blue { background: #4141ff; color: white; }
-        #status-msg { margin-top: 10px; font-style: italic; }
-        .alert-bar { width: 100%; height: 20px; background: #222; margin-top: 10px; border-radius: 10px; overflow: hidden; }
-        #alert-fill { height: 100%; width: 0%; background: red; transition: width 0.5s; }
+        body { background: #050505; color: #00ff41; font-family: 'Courier New', monospace; text-align: center; margin: 0; overflow-x: hidden; }
+        .hidden { display: none !important; }
+        #game-container { max-width: 800px; margin: auto; padding: 20px; }
+        
+        /* Login Screen */
+        #login-screen { margin-top: 15vh; border: 2px solid #00ff41; display: inline-block; padding: 40px; border-radius: 10px; }
+        input { background: #111; border: 1px solid #00ff41; color: #00ff41; padding: 10px; font-size: 1.2rem; width: 100px; text-align: center; }
+        
+        /* Map Screen */
+        .network-map { display: flex; justify-content: center; gap: 20px; margin-top: 40px; }
+        .node { border: 2px solid #00ff41; padding: 20px; width: 160px; border-radius: 8px; cursor: pointer; transition: 0.3s; position: relative; }
+        .node.compromised { border-color: #ff4141; color: #ff4141; box-shadow: 0 0 15px #ff4141; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.6; } }
+        
+        /* Action Buttons */
+        .controls { margin-top: 50px; border-top: 1px solid #333; padding-top: 20px; }
+        button { padding: 15px 30px; font-weight: bold; cursor: pointer; border: none; margin: 10px; font-family: inherit; }
+        .btn-red { background: #ff4141; color: #000; }
+        .btn-blue { background: #4141ff; color: #fff; }
+
+        /* Arcade Game */
+        #arcade-container { margin-top: 20px; }
+        canvas { border: 3px solid #fff; background: #000; display: block; margin: auto; }
+        
+        .alert-text { color: #ff4141; font-weight: bold; font-size: 1.5rem; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>PACKET PILOT: LIVE NETWORK MAP</h1>
-        <p>System Detection Level:</p>
-        <div class="alert-bar"><div id="alert-fill"></div></div>
-        
-        <div id="map" class="network-map">Loading nodes...</div>
 
-        <div class="controls">
-            <h3>Terminal Actions</h3>
-            <p>Target Node: <span id="selected-node-name">None</span></p>
-            <button class="red" onclick="takeAction('attack')">EXPLOIT (RED TEAM)</button>
-            <button class="blue" onclick="takeAction('patch')">PATCH (BLUE TEAM)</button>
-            <div id="status-msg">Select a node to begin.</div>
+    <div id="login-screen">
+        <h1>[ PACKET PILOT ]</h1>
+        <p>Enter Assigned Network IP/Room:</p>
+        <input type="text" id="room-input" placeholder="101" maxlength="3">
+        <br><br>
+        <button class="btn-blue" onclick="joinRoom()">INITIALIZE CONNECTION</button>
+    </div>
+
+    <div id="game-container" class="hidden">
+        <h2 id="room-display">ROOM: --</h2>
+        <div id="alert-zone"></div>
+        
+        <div id="map-view">
+            <div id="network-map" class="network-map"></div>
+            <div class="controls">
+                <p>TARGET: <span id="target-display">None Selected</span></p>
+                <button class="btn-red" onclick="startAttack()">LAUNCH EXPLOIT (RED)</button>
+                <button class="btn-blue" onclick="patchNode()">DEPLOY PATCH (BLUE)</button>
+            </div>
+        </div>
+
+        <div id="arcade-view" class="hidden">
+            <h2 class="alert-text">BYPASSING FIREWALL...</h2>
+            <p>Use Mouse/Touch to move paddle. Hit the core 5 times!</p>
+            <canvas id="pongCanvas" width="600" height="400"></canvas>
+            <button class="btn-red" style="margin-top:20px" onclick="cancelAttack()">ABORT MISSION</button>
         </div>
     </div>
 
     <script>
-        // CHANGE THIS TO YOUR ACTUAL FOLDER PATH
-        const API_BASE = "https://ofhsmath.com/cyber/packetpilot/";
-        
+        const API_BASE = "https://ofhsmath.com/cyber/packetpilot/"; // <--- DOUBLE CHECK THIS
+        let currentRoom = "";
         let selectedNodeId = null;
+        let gameActive = false;
 
-        async function fetchNodes() {
-            try {
-                const res = await fetch(`${API_BASE}get_nodes.php`);
-                const nodes = await res.json();
-                renderMap(nodes);
-            } catch (e) { console.error("Update failed", e); }
+        // --- CORE ENGINE ---
+
+        function joinRoom() {
+            currentRoom = document.getElementById('room-input').value;
+            if(!currentRoom) return alert("Enter a room ID");
+            document.getElementById('login-screen').classList.add('hidden');
+            document.getElementById('game-container').classList.remove('hidden');
+            document.getElementById('room-display').innerText = `NETWORK SEGMENT: ${currentRoom}`;
+            setInterval(updateData, 3000);
+            updateData();
         }
 
-        function renderMap(nodes) {
-            const mapDiv = document.getElementById('map');
-            mapDiv.innerHTML = '';
-            let maxAlert = 0;
-
+        async function updateData() {
+            if (gameActive) return; // Don't refresh map while playing arcade
+            const res = await fetch(`${API_BASE}get_nodes.php?room_id=${currentRoom}`);
+            const nodes = await res.json();
+            const map = document.getElementById('network-map');
+            map.innerHTML = '';
+            
             nodes.forEach(node => {
                 const div = document.createElement('div');
                 div.className = `node ${node.status}`;
                 div.innerHTML = `<strong>${node.node_name}</strong><br><small>${node.status.toUpperCase()}</small>`;
                 div.onclick = () => {
                     selectedNodeId = node.id;
-                    document.getElementById('selected-node-name').innerText = node.node_name;
+                    document.getElementById('target-display').innerText = node.node_name;
                 };
-                mapDiv.appendChild(div);
-                if (parseInt(node.alert_level) > maxAlert) maxAlert = node.alert_level;
+                map.appendChild(div);
+            });
+        }
+
+        async function patchNode() {
+            if(!selectedNodeId) return;
+            await fetch(`${API_BASE}play.php`, {
+                method: 'POST',
+                body: JSON.stringify({ room_id: currentRoom, node_id: selectedNodeId, action: 'patch' })
+            });
+            updateData();
+        }
+
+        // --- MINI-GAME LOGIC (PACKET PONG) ---
+
+        function startAttack() {
+            if(!selectedNodeId) return;
+            document.getElementById('map-view').classList.add('hidden');
+            document.getElementById('arcade-view').classList.remove('hidden');
+            initArcade();
+        }
+
+        function cancelAttack() {
+            document.getElementById('arcade-view').classList.add('hidden');
+            document.getElementById('map-view').classList.remove('hidden');
+            gameActive = false;
+        }
+
+        function initArcade() {
+            gameActive = true;
+            const canvas = document.getElementById('pongCanvas');
+            const ctx = canvas.getContext('2d');
+            let x = canvas.width/2, y = canvas.height-30;
+            let dx = 4, dy = -4;
+            let paddleX = (canvas.width-75)/2;
+            let hits = 0;
+
+            function draw() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw Goal (The Server Core)
+                ctx.fillStyle = "#ff4141";
+                ctx.fillRect(200, 0, 200, 20);
+                ctx.fillStyle = "white";
+                ctx.fillText(`HITS REQUIRED: ${5 - hits}`, 250, 40);
+
+                // Draw Ball
+                ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI*2);
+                ctx.fillStyle = "#00ff41"; ctx.fill(); ctx.closePath();
+
+                // Draw Paddle
+                ctx.fillStyle = "#00ff41";
+                ctx.fillRect(paddleX, canvas.height-10, 75, 10);
+
+                if(x + dx > canvas.width-10 || x + dx < 10) dx = -dx;
+                if(y + dy < 10) {
+                    if(x > 200 && x < 400) { hits++; dy = -dy; y = canvas.height-30; } 
+                    else { dy = -dy; }
+                } 
+                else if(y + dy > canvas.height-10) {
+                    if(x > paddleX && x < paddleX + 75) { dy = -dy; } 
+                    else { finishGame(false); return; }
+                }
+
+                if(hits >= 5) { finishGame(true); return; }
+
+                x += dx; y += dy;
+                requestAnimationFrame(draw);
+            }
+
+            canvas.addEventListener("mousemove", (e) => {
+                let rect = canvas.getBoundingClientRect();
+                paddleX = e.clientX - rect.left - 37.5;
             });
 
-            document.getElementById('alert-fill').style.width = maxAlert + "%";
+            draw();
         }
 
-        async function takeAction(action) {
-            if (!selectedNodeId) return alert("Select a node first!");
-            
-            document.getElementById('status-msg').innerText = "Processing command...";
-            
-            try {
-                const res = await fetch(`${API_BASE}play.php`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ node_id: selectedNodeId, action: action })
-                });
-                const data = await res.json();
-                document.getElementById('status-msg').innerText = data.msg;
-                fetchNodes(); // Refresh immediately
-            } catch (e) { document.getElementById('status-msg').innerText = "Error contacting server."; }
+        async function finishGame(won) {
+            gameActive = false;
+            const action = won ? 'win_game' : 'failed_attack';
+            await fetch(`${API_BASE}play.php`, {
+                method: 'POST',
+                body: JSON.stringify({ room_id: currentRoom, node_id: selectedNodeId, action: action })
+            });
+            alert(won ? "ACCESS GRANTED!" : "ACCESS DENIED - SYSTEM LOCKED");
+            cancelAttack();
         }
-
-        // Auto-refresh every 3 seconds for live gameplay
-        setInterval(fetchNodes, 3000);
-        fetchNodes();
     </script>
 </body>
 </html>
